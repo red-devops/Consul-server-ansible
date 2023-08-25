@@ -1,0 +1,35 @@
+name: "Install Consul server on UAT"
+
+on:
+  workflow_dispatch:
+
+env:
+  ENVIRONMENT: "uat"
+
+jobs:
+  consul-server:
+    name: Ansible install consul server
+    runs-on: [self-hosted, uat]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Download SSH key
+        run: |
+          aws s3 cp \
+          s3://red-devops-workout-recorder/post-provisioning/consul_${{ env.ENVIRONMENT }}_key.pem \
+          consul_${{ env.ENVIRONMENT }}_key.pem
+          chmod 600 consul_${{ env.ENVIRONMENT }}_key.pem
+
+      - name: Run Ansible Playbook
+        run: |
+          ansible-playbook \
+          consul.yaml \
+          -i ./inventories/${{ env.ENVIRONMENT }}/inventory_aws_ec2.yaml \
+          --private-key consul_${{ env.ENVIRONMENT }}_key.pem 
+      
+      - name: Remove SSH key
+        if: always()
+        run: rm consul_${{ env.ENVIRONMENT }}_key.pem -f
+        continue-on-error: true

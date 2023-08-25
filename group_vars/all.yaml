@@ -1,0 +1,13 @@
+user: consul
+group: consul
+mode: u+rwx,g+r,o+r
+
+#Consul
+consul_home: "/home/consul"
+consul_data: "{{ consul_home }}/data"
+consul_bin_home: "{{ consul_home }}/bin"
+consul_config_home: "{{ consul_home }}/config"
+consul_log_home: "{{ consul_home }}/log"
+
+#AWS
+region: "eu-central-1"

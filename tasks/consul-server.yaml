@@ -1,0 +1,117 @@
+---
+- name: Update APT
+  apt:
+    upgrade: dist
+    update_cache: yes
+
+- name: Install prerequisites
+  apt:
+    name: "{{ item }}"
+    update_cache: yes
+  loop:
+    - jq
+    - awscli
+    - unzip
+  
+- name: Get instance name
+  command: aws ec2 describe-instances --region {{ region }} --filters "Name=private-ip-address,Values={{ private_ip_address }}" --query 'Reservations[].Instances[].Tags[?Key==`Name`].Value' --output text
+  register: instance_name_out
+  
+- name: Set instance name
+  set_fact:
+    node_name: "{{ instance_name_out.stdout }}"
+
+- name: Create group {{ group }}
+  group:
+    name: "{{ group }}"
+    state: present
+
+- name: Create user {{ user }}
+  user:
+    name: "{{ user }}"
+    group: "{{ group }}"
+    state: present
+    createhome: yes
+    home: /home/{{ user }}
+    shell: /bin/bash
+
+- name: Create directories
+  become: true
+  file:
+    dest: "{{ item }}"
+    state: directory
+    owner: "{{ user }}"
+    group: "{{ group }}"
+    mode: "{{ mode }}"
+  with_items:
+    - "{{ consul_home }}"
+    - "{{ consul_data }}"
+    - "{{ consul_bin_home }}"
+    - "{{ consul_config_home }}"
+    - "{{ consul_log_home }}"
+
+- name: Install consul
+  unarchive:
+    src: "{{ item }}"
+    dest: "{{ consul_bin_home }}"
+    remote_src: yes
+    owner: "{{ user }}"
+    group: "{{ group }}"
+  with_items:
+    - "https://releases.hashicorp.com/consul/1.16.0/consul_1.16.0_linux_amd64.zip"
+
+- name: Render keygen script
+  template:
+    src: "get_keygen.sh"
+    dest: "get_keygen.sh"
+    mode: "{{ mode }}"
+
+- name: Get keygen form vault
+  command: "./get_keygen.sh"
+  register: keygen_output
+  run_once: true
+
+- name: Set keygen variable
+  set_fact:
+    keygen_var: "{{ keygen_output.stdout | from_json | json_query('data.data.key') }}"
+
+- name: Copy scripts
+  template:
+    src: "templates/bin/{{ item }}"
+    dest: "{{ consul_bin_home }}/{{ item }}"
+    owner: "{{ user }}"
+    group: "{{ group }}"
+    mode: "700"
+  with_items:
+    - consul_bootstrap_acl.sh
+    - set_deny_default_policy.sh
+
+- name: Copy configuration
+  template:
+    src: "templates/config/consul_config.hcl"
+    dest: "{{ consul_config_home }}/consul_config.hcl"
+    owner: "{{ user }}"
+    group: "{{ group }}"
+    mode: "{{ mode }}"
+
+- name: Copy consul.service
+  template:
+    src: "templates/config/consul.service"
+    dest: "/usr/lib/systemd/system/consul.service"
+    mode: "{{ mode }}"
+
+- name: Start Consul Server
+  systemd:
+    name: consul
+    state: restarted
+    daemon_reload: yes
+    enabled: yes
+  
+- name: Bootstrap ACL
+  command: "{{ consul_bin_home }}/consul_bootstrap_acl.sh"
+  run_once: true
+
+- name: Set to deny default policy
+  command: "{{ consul_bin_home }}/set_deny_default_policy.sh"
+  run_once: true
+  
